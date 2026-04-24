@@ -1,0 +1,7 @@
+beautifulsoup4==4.12.3
+requests==2.32.3
+faiss-cpu==1.10.0
+sentence-transformers==3.4.1
+numpy==2.2.3
+mcp==1.2.0
+uvicorn==0.34.0
