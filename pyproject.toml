@@ -24,6 +24,10 @@ dependencies = [
 [project.optional-dependencies]
 dev = ["pytest>=8.0"]
 
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = ["src"]
+
 [project.scripts]
 singbox-mcp = "singbox_mcp.__main__:main"
 

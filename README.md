@@ -90,6 +90,14 @@ Arguments:
 
 Each hit includes `text`, `score`, per-channel `scores`, and `meta` (`url`, `title`, `section`, `heading_path`).
 
+## Tests / CI
+```bash
+pip install -e ".[dev]"
+python -m pytest tests/ -q
+```
+
+GitHub Actions runs the same suite on Python 3.10 and 3.12 for every PR.
+
 ## Deployment (Railway)
 1. Push the repo
 2. Install deps from `requirements.txt` / `pyproject.toml`

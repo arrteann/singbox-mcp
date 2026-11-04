@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import logging
 import os
 from typing import Literal
 
@@ -10,6 +11,8 @@ from mcp.server.fastmcp import FastMCP
 from pydantic import BaseModel, ConfigDict, Field
 
 from .rag import DEFAULT_TOP_K, RAGSystem
+
+logger = logging.getLogger(__name__)
 
 rag_system = RAGSystem()
 
@@ -61,11 +64,34 @@ async def search_docs(params: SearchQueryInput) -> str:
     """
     try:
         results = rag_system.search(params.query, top_k=params.top_k, mode=params.mode)
-        return json.dumps(results, indent=2, ensure_ascii=False)
-    except Exception as exc:  # noqa: BLE001 - surface tool errors to the MCP client
+        return json.dumps(
+            {
+                "error": False,
+                "query": params.query,
+                "mode": params.mode,
+                "count": len(results),
+                "results": results,
+            },
+            indent=2,
+            ensure_ascii=False,
+        )
+    except FileNotFoundError as exc:
+        logger.exception("Index missing during search")
         return json.dumps(
             {
                 "error": True,
+                "code": "index_not_found",
+                "message": str(exc),
+                "hint": "Run: python -m singbox_mcp build-index",
+            },
+            indent=2,
+        )
+    except Exception as exc:  # noqa: BLE001 - surface tool errors to the MCP client
+        logger.exception("Search failed for query=%r", params.query)
+        return json.dumps(
+            {
+                "error": True,
+                "code": "search_failed",
                 "message": str(exc),
             },
             indent=2,
@@ -74,11 +100,15 @@ async def search_docs(params: SearchQueryInput) -> str:
 
 def main() -> None:
     if "PORT" in os.environ:
-        print(f"🚀 Starting MCP Server on port {port} (HTTP SSE mode)...")
+        logger.info("Starting MCP server on 0.0.0.0:%s (SSE)", port)
         mcp.run(transport="sse")
     else:
+        logger.info("Starting MCP server (stdio)")
         mcp.run(transport="stdio")
 
 
 if __name__ == "__main__":
+    from .logging_config import setup_logging
+
+    setup_logging()
     main()

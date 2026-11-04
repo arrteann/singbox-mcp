@@ -5,11 +5,18 @@ from __future__ import annotations
 import argparse
 import sys
 
+from .logging_config import setup_logging
+
 
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         prog="singbox-mcp",
         description="Scrape, index, and serve sing-box documentation via MCP.",
+    )
+    parser.add_argument(
+        "--log-level",
+        default=None,
+        help="Logging level (default: INFO, or SINGBOX_LOG_LEVEL).",
     )
     sub = parser.add_subparsers(dest="command", required=True)
 
@@ -23,6 +30,7 @@ def build_parser() -> argparse.ArgumentParser:
 def main(argv: list[str] | None = None) -> int:
     parser = build_parser()
     args = parser.parse_args(argv)
+    setup_logging(args.log_level)
 
     if args.command == "scrape":
         from .scraper import main as scrape_main

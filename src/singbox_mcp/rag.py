@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import logging
 import os
 import pickle
 import re
@@ -16,6 +17,8 @@ from sentence_transformers import SentenceTransformer
 
 # Optional mirror for restricted networks; override with HF_ENDPOINT env.
 os.environ.setdefault("HF_ENDPOINT", "https://hf-mirror.com")
+
+logger = logging.getLogger(__name__)
 
 EMBEDDING_MODEL = os.environ.get("SINGBOX_EMBEDDING_MODEL", "all-MiniLM-L6-v2")
 MAX_CHUNK_CHARS = int(os.environ.get("SINGBOX_CHUNK_SIZE", "700"))
@@ -200,32 +203,33 @@ class RAGSystem:
         self._bm25 = BM25Okapi(self._tokenized_corpus) if self._tokenized_corpus else None
 
     def build_index(self) -> None:
-        print("Loading scraped data...")
+        logger.info("Loading scraped data from %s", self.data_path)
         data = self.load_data()
 
-        print(
-            f"Chunking documents by section "
-            f"(max_chars={MAX_CHUNK_CHARS}, overlap={CHUNK_OVERLAP})..."
+        logger.info(
+            "Chunking documents by section (max_chars=%s, overlap=%s)",
+            MAX_CHUNK_CHARS,
+            CHUNK_OVERLAP,
         )
         all_chunks: list[dict[str, Any]] = []
         for doc in data:
             all_chunks.extend(chunk_document(doc["content"], doc["url"], doc["title"]))
 
-        print(f"Created {len(all_chunks)} chunks from {len(data)} documents.")
+        logger.info("Created %s chunks from %s documents", len(all_chunks), len(data))
 
-        print(f"Generating embeddings using {EMBEDDING_MODEL}...")
+        logger.info("Generating embeddings using %s", EMBEDDING_MODEL)
         texts = [chunk["text"] for chunk in all_chunks]
         embeddings = self.model.encode(texts, convert_to_numpy=True, show_progress_bar=True)
         embeddings = np.asarray(embeddings, dtype=np.float32)
 
         dimension = embeddings.shape[1]
-        print("Building FAISS index...")
+        logger.info("Building FAISS index (dim=%s)", dimension)
         self.index = faiss.IndexFlatL2(dimension)
         self.index.add(embeddings)
         self.metadata = all_chunks
         self._rebuild_bm25()
 
-        print("Saving FAISS index and metadata to disk...")
+        logger.info("Saving FAISS index to %s and metadata to %s", INDEX_FILE, METADATA_FILE)
         faiss.write_index(self.index, str(INDEX_FILE))
         with METADATA_FILE.open("wb") as handle:
             pickle.dump(
@@ -237,7 +241,7 @@ class RAGSystem:
                 handle,
             )
 
-        print("✅ Index build successfully completed!\n")
+        logger.info("Index build completed")
 
     def load_index(self) -> None:
         if not INDEX_FILE.exists() or not METADATA_FILE.exists():
@@ -255,8 +259,11 @@ class RAGSystem:
 
         self._rebuild_bm25()
 
-    def _ensure_ready(self) -> None:
-        if self.index is None or not self.metadata:
+    def _ensure_ready(self, *, need_faiss: bool = True) -> None:
+        if need_faiss:
+            if self.index is None or not self.metadata:
+                self.load_index()
+        elif not self.metadata:
             self.load_index()
         if self._bm25 is None and self.metadata:
             self._rebuild_bm25()
@@ -317,13 +324,22 @@ class RAGSystem:
           - keyword: BM25 only
           - hybrid: Reciprocal Rank Fusion of both (default)
         """
-        self._ensure_ready()
+        mode = (mode or "hybrid").lower()
+        need_faiss = mode not in {"keyword", "bm25"}
+        need_bm25 = mode != "semantic"
+        self._ensure_ready(need_faiss=need_faiss)
         candidate_k = max(top_k * HYBRID_CANDIDATE_MULTIPLIER, top_k)
 
-        semantic_ranked, semantic_scores = self._semantic_ranks(query, candidate_k)
-        bm25_ranked, bm25_scores = self._bm25_ranks(query, candidate_k)
+        semantic_ranked: list[int] = []
+        semantic_scores: dict[int, float] = {}
+        bm25_ranked: list[int] = []
+        bm25_scores: dict[int, float] = {}
 
-        mode = (mode or "hybrid").lower()
+        if need_faiss:
+            semantic_ranked, semantic_scores = self._semantic_ranks(query, candidate_k)
+        if need_bm25:
+            bm25_ranked, bm25_scores = self._bm25_ranks(query, candidate_k)
+
         if mode == "semantic":
             ordered_ids = semantic_ranked[:top_k]
             fusion_scores = {idx: semantic_scores.get(idx, 0.0) for idx in ordered_ids}
@@ -363,18 +379,21 @@ def main() -> None:
     system.build_index()
 
     test_query = "How to configure inbound sniffing?"
-    print("--- Testing Hybrid Search ---")
-    print(f"Query: '{test_query}'\n")
-
+    logger.info("Smoke search query=%r", test_query)
     results = system.search(test_query, top_k=3, mode="hybrid")
     for i, result in enumerate(results, 1):
-        print(f"--- Result {i} (score={result['score']}) ---")
-        print(f"📘 Title: {result['meta']['title']}")
-        print(f"🧭 Section: {result['meta']['heading_path']}")
-        print(f"🔗 URL: {result['meta']['url']}")
-        print(f"📝 Text Snippet:\n{result['text'][:500]}")
-        print("-" * 50 + "\n")
+        logger.info(
+            "Result %s score=%.4f title=%s section=%s",
+            i,
+            result["score"],
+            result["meta"]["title"],
+            result["meta"]["heading_path"],
+        )
+        logger.info("Snippet: %s", result["text"][:240].replace("\n", " "))
 
 
 if __name__ == "__main__":
+    from .logging_config import setup_logging
+
+    setup_logging()
     main()

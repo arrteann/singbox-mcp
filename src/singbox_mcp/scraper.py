@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import logging
 import time
 from pathlib import Path
 from typing import Any
@@ -20,6 +21,8 @@ HEADERS = {
         "singbox-mcp-scraper/0.2 (+https://github.com/arrteann/singbox-mcp; docs indexing)"
     )
 }
+
+logger = logging.getLogger(__name__)
 
 
 def get_links(url: str, soup: BeautifulSoup) -> list[str]:
@@ -51,7 +54,7 @@ def get_page(url: str) -> tuple[dict[str, Any] | None, BeautifulSoup | None]:
             article = soup.find("main")
 
         if not article:
-            print(f"No main content found for {url}.")
+            logger.warning("No main content found for %s", url)
             return None, soup
 
         h1 = article.find("h1")
@@ -98,7 +101,7 @@ def get_page(url: str) -> tuple[dict[str, Any] | None, BeautifulSoup | None]:
 
         return {"url": url, "title": title, "content": content_blocks}, soup
     except Exception as exc:  # noqa: BLE001 - crawl should continue on page failures
-        print(f"Error fetching the page {url}: {exc}")
+        logger.error("Error fetching %s: %s", url, exc)
         return None, None
 
 
@@ -126,13 +129,13 @@ def build_data(base_url: str = BASE_URL, delay_seconds: float = 0.3) -> list[dic
     to_visit: set[str] = {base_url}
     data: list[dict[str, str]] = []
 
-    print(f"Starting crawl from {base_url}")
+    logger.info("Starting crawl from %s", base_url)
     while to_visit:
         url = to_visit.pop()
         if url in visited:
             continue
 
-        print(f"Scraping: {url}")
+        logger.info("Scraping %s", url)
         page_data, soup = get_page(url)
         visited.add(url)
 
@@ -165,8 +168,11 @@ def save_to_json(data: list[dict[str, str]], filename: str | Path = DEFAULT_DATA
 def main() -> None:
     data = build_data()
     path = save_to_json(data)
-    print(f"✅ Done! Scraped {len(data)} pages and saved to {path}")
+    logger.info("Done. Scraped %s pages into %s", len(data), path)
 
 
 if __name__ == "__main__":
+    from .logging_config import setup_logging
+
+    setup_logging()
     main()
