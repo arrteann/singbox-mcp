@@ -97,3 +97,9 @@ By default, executing `server.py` checks for the environment variable `PORT`. If
    python server.py
    ```
 5. Railway provides you a domain (e.g. `https://my-singbox-mcp.up.railway.app/sse`). You can now instruct Claude or external AI agents to access your API globally.
+
+---
+
+## 📄 License
+
+This project is licensed under the [MIT License](LICENSE).
