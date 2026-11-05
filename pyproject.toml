@@ -1,0 +1,38 @@
+[build-system]
+requires = ["setuptools>=68", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "singbox-mcp"
+version = "0.2.0"
+description = "Sing-box documentation RAG server exposed over the Model Context Protocol"
+readme = "README.md"
+requires-python = ">=3.10"
+license = { text = "MIT" }
+authors = [{ name = "arrteann" }]
+dependencies = [
+  "beautifulsoup4==4.12.3",
+  "requests==2.32.3",
+  "faiss-cpu==1.10.0",
+  "sentence-transformers==3.4.1",
+  "numpy==2.2.3",
+  "mcp==1.2.0",
+  "uvicorn==0.34.0",
+  "rank-bm25==0.2.2",
+]
+
+[project.optional-dependencies]
+dev = ["pytest>=8.0"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = ["src"]
+
+[project.scripts]
+singbox-mcp = "singbox_mcp.__main__:main"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.setuptools.package-dir]
+"" = "src"

@@ -1,105 +1,112 @@
-# Sing-box Documentation RAG MCP Server 🚀
+# Sing-box Documentation RAG MCP Server
 
-A highly efficient local AI system that extracts, semantically indexes, and serves [sing-box](https://sing-box.sagernet.org/) documentation via the Model Context Protocol (MCP). This enables AI tools like Cursor and Claude Desktop to fetch real-time, accurate configurations and avoid "AI hallucinations".
+Local RAG pipeline that scrapes [sing-box](https://sing-box.sagernet.org/) docs, indexes them with hybrid search (FAISS + BM25), and serves them over MCP for Cursor / Claude.
 
-## 🌟 Features
-- **Automated Web Scrapper**: Crawls the official sing-box website and extracts structured documentation sections.
-- **Local RAG Pipeline (100% Free)**: Uses `SentenceTransformers` (`all-MiniLM-L6-v2`) to turn text into embeddings.
-- **Fast Semantic Search**: Stores knowledge inside a lightweight local `FAISS` Vector Database for <100ms semantic search.
-- **MCP API API Integration**: Built with `FastMCP` to provide AI-readable functions over standard input (`stdio`) or HTTP Server-Sent Events (`sse`).
-- **Cloud-Ready Deployment**: Ready to be uploaded and hosted on Railway to act as a public MCP tool.
+## Features
+- **Scraper**: Crawls `/configuration/` and extracts headings, prose, lists, and code blocks
+- **Section-aware chunking**: Splits on markdown headings with breadcrumb context (not blind character windows)
+- **Hybrid retrieval**: Dense FAISS search + BM25 keyword search, fused with Reciprocal Rank Fusion
+- **Scored MCP tool**: Returns fused / semantic / BM25 scores plus `heading_path`
+- **Package layout**: Installable `src/singbox_mcp` with CLI (`singbox-mcp` / `python -m singbox_mcp`)
 
-## 📦 Project Architecture
+## Project layout
 ```text
-├── scrapper.py       # Scrapes documentation site into data.json
-├── rag.py            # Chunks data, downloads ML models, builds FAISS index
-├── server.py         # MCP API server (handles stdio and sse transport)
-├── requirements.txt  # Dependencies (Railway ready)
-└── prd.md            # Product Requirements Document
+├── src/singbox_mcp/
+│   ├── scraper.py      # Crawl docs → data.json
+│   ├── rag.py          # Section chunking, FAISS + BM25, hybrid search
+│   ├── server.py       # FastMCP tool server
+│   └── __main__.py     # CLI: scrape | build-index | serve
+├── scrapper.py         # Thin backward-compatible wrappers
+├── rag.py
+├── server.py
+├── pyproject.toml
+├── requirements.txt
+└── prd.md
 ```
 
----
+## Installation
 
-## 🛠️ Installation
+Python 3.10+ recommended.
 
-### 1. Requirements
-- macOS/Linux/Windows
-- Python 3.10+
-- (Optional but recommended) Virtual Environment
-
-### 2. Setup
-Create a virtual environment and load the dependencies:
 ```bash
 python3 -m venv venv
 source venv/bin/activate
-pip install -r requirements.txt
+pip install -e .
+# or: pip install -r requirements.txt && pip install -e .
 ```
 
----
+## Build the index
 
-## 🚀 How to Build the Database (RAG)
+```bash
+python -m singbox_mcp scrape        # writes data.json
+python -m singbox_mcp build-index   # writes faiss_index.bin + metadata.pkl
+```
 
-Before querying the AI, you must build the FAISS index database:
-1. **Scrape the documentation:**
-    ```bash
-    python3 scrapper.py
-    ```
-    *(This creates `data.json`)*
-2. **Build FAISS Index:**
-    ```bash
-    python3 rag.py
-    ```
-    *(This downloads the transformer model, generates embeddings, and creates `faiss_index.bin`)*
+Legacy scripts still work (`python scrapper.py`, `python rag.py`) after `pip install -e .`.
 
----
+Generated index files are gitignored — rebuild them locally or in CI/deploy.
 
-## 🔗 Connecting to AI (Cursor & Claude)
+### Useful env vars
+| Variable | Default | Purpose |
+|---|---|---|
+| `SINGBOX_EMBEDDING_MODEL` | `all-MiniLM-L6-v2` | SentenceTransformer model |
+| `SINGBOX_CHUNK_SIZE` | `700` | Max chars per section piece |
+| `SINGBOX_CHUNK_OVERLAP` | `120` | Overlap for oversized sections |
+| `SINGBOX_TOP_K` | `5` | Default result count |
+| `HF_ENDPOINT` | `https://hf-mirror.com` | Hugging Face endpoint / mirror |
 
-You can plug this server into your intelligent IDE or Desktop assistant automatically.
+## Run the MCP server
 
-### For Cursor CLI/IDE
-1. Open Cursor Settings (`Cmd + Shift + J`).
-2. Go to **Features** -> **MCP Servers**.
-3. Click `+ Add New MCP Server`.
-4. Use the following:
-   - **Name**: `singbox-docs`
-   - **Type**: `command`
-   - **Command**: `/path/to/your/venv/bin/python /path/to/your/server.py`
+```bash
+python -m singbox_mcp serve
+# or: singbox-mcp serve
+```
 
-### For Claude Desktop App
-Add the following to your `~/Library/Application Support/Claude/claude_desktop_config.json`:
+- No `PORT` → stdio (Cursor / Claude Desktop)
+- `PORT` set → SSE HTTP (Railway-style deploy)
+
+### Cursor
+- **Name**: `singbox-docs`
+- **Type**: `command`
+- **Command**: `/path/to/venv/bin/python -m singbox_mcp serve`
+
+### Claude Desktop
 ```json
 {
   "mcpServers": {
     "singbox_docs": {
       "command": "/absolute/path/to/venv/bin/python",
-      "args": [
-        "/absolute/path/to/server.py"
-      ]
+      "args": ["-m", "singbox_mcp", "serve"]
     }
   }
 }
 ```
 
----
+### Tool: `search_docs`
+Arguments:
+- `query` (required)
+- `top_k` (optional, 1–20)
+- `mode`: `hybrid` | `semantic` | `keyword`
 
-## ☁️ Deployment (Railway)
-This project is configured out-of-the-box for Cloud Deployments. 
+Each hit includes `text`, `score`, per-channel `scores`, and `meta` (`url`, `title`, `section`, `heading_path`).
 
-By default, executing `server.py` checks for the environment variable `PORT`. If the variable exists (like on Railway), the `FastMCP` server automatically switches to the `SSE` (Server-Sent Events) HTTP Transport protocol!
+## Tests / CI
+```bash
+pip install -e ".[dev]"
+python -m pytest tests/ -q
+```
 
-**Deployment Steps:**
-1. Commit the repository to GitHub.
-2. Link the repository to your [Railway.app](https://railway.app/).
-3. Railway will detect `requirements.txt` and install Python modules.
-4. Set the Start Command (or `Procfile`) to:
-   ```bash
-   python server.py
-   ```
-5. Railway provides you a domain (e.g. `https://my-singbox-mcp.up.railway.app/sse`). You can now instruct Claude or external AI agents to access your API globally.
+GitHub Actions runs the same suite on Python 3.10 and 3.12 for every PR.
 
----
+## Deployment (Railway)
+1. Push the repo
+2. Install deps from `requirements.txt` / `pyproject.toml`
+3. Run scrape + build-index in a release/build step (or bake artifacts into the image)
+4. Start command: `python -m singbox_mcp serve`
 
-## 📄 License
+Railway sets `PORT`, so the server uses SSE automatically.
+
+## License
 
 This project is licensed under the [MIT License](LICENSE).
+
